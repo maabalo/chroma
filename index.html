@@ -1,0 +1,545 @@
+<!doctype html>
+<!--
+  ==========================================================================
+  Chroma — Color Palette Generator
+  --------------------------------------------------------------------------
+  Open this file directly in a browser. No build step or server needed.
+  Styling lives in assets/css/style.css, behaviour in assets/js/app.js.
+
+  LAYOUT MAP
+    0. sprite    — shared SVG icons (referenced with <use href="#i-NAME">)
+    1. topbar    — brand, help button, theme button
+    2. toolbar   — mode + generate, color count, undo/redo, share/save/library/export
+    3. main      — the palette (<ol id="swatches">), filled from <template id="swatchTemplate">
+    4. overlays  — library dialog, export dialog, help dialog, toast, screen-reader announcer
+  ==========================================================================
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Chroma — Color Palette Generator</title>
+    <meta
+      name="description"
+      content="Generate, lock, fine-tune, save and export color palettes. Runs entirely in your browser."
+    />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#101317" media="(prefers-color-scheme: dark)" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='8' height='32' fill='%233ddc97'/%3E%3Crect x='8' width='8' height='32' fill='%232f80ed'/%3E%3Crect x='16' width='8' height='32' fill='%23f2c94c'/%3E%3Crect x='24' width='8' height='32' fill='%23eb5757'/%3E%3C/svg%3E"
+    />
+
+    <!-- Apply the saved theme before first paint so the page never flashes the wrong colors. -->
+    <script>
+      (function () {
+        try {
+          var theme = localStorage.getItem('chroma-theme');
+          if (theme === 'light' || theme === 'dark')
+            document.documentElement.setAttribute('data-theme', theme);
+        } catch (error) {
+          // Storage is blocked (private mode / strict settings): the system theme is used instead.
+        }
+      })();
+    </script>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap"
+    />
+    <link rel="stylesheet" href="assets/css/style.css" />
+  </head>
+  <body>
+    <!--
+    ICON SPRITE — every icon is drawn once here and reused with
+    <svg class="icon"><use href="#i-NAME"/></svg>. Stroke style comes from .icon in style.css.
+    To add an icon: add a <symbol id="i-NAME" viewBox="0 0 24 24"> with 24×24 line art.
+  -->
+    <svg class="sprite" aria-hidden="true" focusable="false">
+      <symbol id="i-help" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="9" />
+        <path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3" />
+        <path d="M12 17h.01" />
+      </symbol>
+      <symbol id="i-generate" viewBox="0 0 24 24">
+        <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+        <path d="M21 3v6h-6" />
+      </symbol>
+      <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14" /></symbol>
+      <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></symbol>
+      <symbol id="i-undo" viewBox="0 0 24 24">
+        <path d="M9 14 4 9l5-5" />
+        <path d="M4 9h11a5 5 0 0 1 0 10h-3" />
+      </symbol>
+      <symbol id="i-redo" viewBox="0 0 24 24">
+        <path d="m15 14 5-5-5-5" />
+        <path d="M20 9H9a5 5 0 0 0 0 10h3" />
+      </symbol>
+      <symbol id="i-link" viewBox="0 0 24 24">
+        <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+        <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+      </symbol>
+      <symbol id="i-save" viewBox="0 0 24 24">
+        <path d="M19 21l-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
+      </symbol>
+      <symbol id="i-library" viewBox="0 0 24 24">
+        <rect x="3" y="3" width="7" height="7" rx="1" />
+        <rect x="14" y="3" width="7" height="7" rx="1" />
+        <rect x="3" y="14" width="7" height="7" rx="1" />
+        <rect x="14" y="14" width="7" height="7" rx="1" />
+      </symbol>
+      <symbol id="i-code" viewBox="0 0 24 24">
+        <path d="m16 18 6-6-6-6" />
+        <path d="m8 6-6 6 6 6" />
+      </symbol>
+      <symbol id="i-unlock" viewBox="0 0 24 24">
+        <rect x="4" y="11" width="16" height="10" rx="2" />
+        <path d="M8 11V7a4 4 0 0 1 7.75-1.4" />
+      </symbol>
+      <symbol id="i-lock" viewBox="0 0 24 24">
+        <rect x="4" y="11" width="16" height="10" rx="2" />
+        <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+      </symbol>
+      <symbol id="i-pipette" viewBox="0 0 24 24">
+        <path d="m2 22 1-1h3l9-9" />
+        <path d="M3 21v-3l9-9" />
+        <path
+          d="m15 6 3.4-3.4a2.1 2.1 0 1 1 3 3L18 9l.4.4a2.1 2.1 0 1 1-3 3l-3.8-3.8a2.1 2.1 0 1 1 3-3l.4.4Z"
+        />
+      </symbol>
+      <symbol id="i-close" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12" /></symbol>
+      <symbol id="i-theme-auto" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" />
+      </symbol>
+      <symbol id="i-theme-light" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="4" />
+        <path
+          d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"
+        />
+      </symbol>
+      <symbol id="i-theme-dark" viewBox="0 0 24 24">
+        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+      </symbol>
+      <symbol id="i-trash" viewBox="0 0 24 24">
+        <path d="M3 6h18" />
+        <path d="M8 6V4h8v2" />
+        <path d="M19 6l-1 14H6L5 6" />
+      </symbol>
+    </svg>
+    <a class="skip-link" href="#swatches">Skip to palette</a>
+    <noscript
+      ><p class="noscript">
+        Chroma needs JavaScript to generate palettes. Please enable it and reload.
+      </p></noscript
+    >
+
+    <!-- ===================== 1. TOP BAR ===================== -->
+    <header class="topbar">
+      <span class="brand"
+        ><span class="brand-prompt" aria-hidden="true">&gt;</span> chroma<span
+          class="brand-caret"
+          aria-hidden="true"
+        ></span
+      ></span>
+      <span class="brand-tag">palette generator</span>
+
+      <div class="topbar-actions">
+        <button id="helpBtn" class="icon-btn" type="button" aria-label="Help" title="Help (?)">
+          <svg class="icon" aria-hidden="true" focusable="false"><use href="#i-help" /></svg>
+        </button>
+        <!-- Icon and label are set by app.js (section 17) to match the current theme. -->
+        <button id="themeBtn" class="icon-btn" type="button" aria-label="Theme"></button>
+      </div>
+    </header>
+
+    <!-- ===================== 2. TOOLBAR ===================== -->
+    <section class="toolbar" aria-label="Palette controls">
+      <!-- Mode + generate. Option values must match the keys of HARMONIES in app.js (section 06). -->
+      <div class="toolbar-group toolbar-group--main">
+        <label class="field">
+          <span class="field-label">mode</span>
+          <select id="modeSelect">
+            <option value="auto">auto</option>
+            <option value="analogous">analogous</option>
+            <option value="monochromatic">monochrome</option>
+            <option value="complementary">complementary</option>
+            <option value="splitComplementary">split complementary</option>
+            <option value="triadic">triadic</option>
+            <option value="random">random</option>
+          </select>
+        </label>
+        <button id="generateBtn" class="btn btn-primary" type="button">
+          <svg class="icon" aria-hidden="true" focusable="false"><use href="#i-generate" /></svg>
+          generate <kbd class="kbd-hint">space</kbd>
+        </button>
+      </div>
+
+      <!-- Color count + history -->
+      <div class="toolbar-group">
+        <div class="stepper" role="group" aria-label="Number of colors">
+          <button id="removeColorBtn" type="button" aria-label="Remove a color" title="Remove a color (−)">
+            <svg class="icon" aria-hidden="true" focusable="false"><use href="#i-minus" /></svg>
+          </button>
+          <output id="colorCount">5</output>
+          <button id="addColorBtn" type="button" aria-label="Add a color" title="Add a color (+)">
+            <svg class="icon" aria-hidden="true" focusable="false"><use href="#i-plus" /></svg>
+          </button>
+        </div>
+        <button id="undoBtn" class="icon-btn" type="button" aria-label="Undo" title="Undo (Ctrl/⌘ Z)">
+          <svg class="icon" aria-hidden="true" focusable="false"><use href="#i-undo" /></svg>
+        </button>
+        <button id="redoBtn" class="icon-btn" type="button" aria-label="Redo" title="Redo (Shift Ctrl/⌘ Z)">
+          <svg class="icon" aria-hidden="true" focusable="false"><use href="#i-redo" /></svg>
+        </button>
+      </div>
+
+      <!-- Keep / use the palette -->
+      <div class="toolbar-group toolbar-group--end">
+        <button
+          id="shareBtn"
+          class="icon-btn"
+          type="button"
+          aria-label="Copy share link"
+          title="Copy share link"
+        >
+          <svg class="icon" aria-hidden="true" focusable="false"><use href="#i-link" /></svg>
+        </button>
+        <button
+          id="saveBtn"
+          class="icon-btn"
+          type="button"
+          aria-label="Save palette"
+          title="Save palette (S)"
+        >
+          <svg class="icon" aria-hidden="true" focusable="false"><use href="#i-save" /></svg>
+        </button>
+        <button id="libraryBtn" class="icon-btn" type="button" title="Saved palettes (L)">
+          <svg class="icon" aria-hidden="true" focusable="false"><use href="#i-library" /></svg>
+          <span class="sr-only">Saved palettes</span>
+          <span id="libraryCount" class="badge" hidden></span>
+        </button>
+        <button id="exportBtn" class="btn" type="button" title="Export as code (E)">
+          <svg class="icon" aria-hidden="true" focusable="false"><use href="#i-code" /></svg>
+          export
+        </button>
+      </div>
+    </section>
+
+    <!-- ===================== 3. PALETTE ===================== -->
+    <main class="main">
+      <h1 class="sr-only">Color palette</h1>
+      <!-- Filled by app.js (section 09). One <li> per color. -->
+      <ol id="swatches" class="swatches" tabindex="-1" aria-label="Palette colors"></ol>
+    </main>
+
+    <!--
+    One swatch. app.js clones this for each color and fills in the values.
+    The aria-labels here are fallbacks; app.js replaces them with specific ones ("Copy #3DDC97").
+    data-action tells the click handler what a control does (section 10).
+  -->
+    <template id="swatchTemplate">
+      <li class="swatch">
+        <div class="swatch-actions">
+          <button
+            class="swatch-btn"
+            type="button"
+            data-action="lock"
+            aria-pressed="false"
+            aria-label="Lock color"
+          >
+            <svg class="icon icon-unlocked" aria-hidden="true" focusable="false">
+              <use href="#i-unlock" />
+            </svg>
+            <svg class="icon icon-locked" aria-hidden="true" focusable="false"><use href="#i-lock" /></svg>
+          </button>
+          <!-- The native color input sits invisibly on top of the icon so the picker opens next to it. -->
+          <span class="swatch-btn swatch-picker" title="Pick a color">
+            <svg class="icon" aria-hidden="true" focusable="false"><use href="#i-pipette" /></svg>
+            <input type="color" data-action="edit" aria-label="Pick color" />
+          </span>
+        </div>
+        <div class="swatch-info">
+          <span class="swatch-index" aria-hidden="true"></span>
+          <button
+            class="swatch-hex"
+            type="button"
+            data-action="copy"
+            data-format="hex"
+            aria-label="Copy HEX value"
+          ></button>
+          <button
+            class="swatch-value"
+            type="button"
+            data-action="copy"
+            data-format="rgb"
+            aria-label="Copy RGB value"
+          ></button>
+          <button
+            class="swatch-value"
+            type="button"
+            data-action="copy"
+            data-format="hsl"
+            aria-label="Copy HSL value"
+          ></button>
+          <p class="swatch-contrast">
+            <span class="contrast-item"
+              ><i class="dot dot--white" aria-hidden="true"></i
+              ><span class="sr-only">Contrast with white:</span>
+              <span class="contrast-value" data-against="#ffffff"></span
+            ></span>
+            <span class="contrast-item"
+              ><i class="dot dot--black" aria-hidden="true"></i
+              ><span class="sr-only">Contrast with black:</span>
+              <span class="contrast-value" data-against="#000000"></span
+            ></span>
+          </p>
+        </div>
+      </li>
+    </template>
+
+    <!-- ===================== 4. OVERLAYS ===================== -->
+
+    <!-- Library: palettes saved in this browser (localStorage). -->
+    <dialog id="libraryDialog" class="dialog" aria-labelledby="libraryTitle">
+      <div class="dialog-bar">
+        <span class="dialog-dots" aria-hidden="true"><span></span><span></span><span></span></span>
+        <h2 id="libraryTitle" class="dialog-title">
+          <span class="dialog-path" aria-hidden="true">~/chroma/</span>saved palettes
+        </h2>
+        <button class="icon-btn dialog-close" type="button" data-close aria-label="Close">
+          <svg class="icon" aria-hidden="true" focusable="false"><use href="#i-close" /></svg>
+        </button>
+      </div>
+      <div class="dialog-body">
+        <!-- Shown for a moment after a delete so it can be undone (app.js section 14). -->
+        <p id="libraryUndo" class="library-undo" hidden>
+          <span>Palette deleted.</span>
+          <button id="libraryUndoBtn" class="btn" type="button">undo</button>
+        </p>
+        <ul id="libraryList" class="library-list"></ul>
+        <p id="libraryEmpty" class="library-empty">
+          No saved palettes yet. Press <kbd>S</kbd> or the save button to keep one here.
+        </p>
+      </div>
+      <!-- Screen-reader messages while this dialog is open (app.js section 13). -->
+      <p class="sr-only dialog-status" role="status" aria-live="polite"></p>
+    </dialog>
+
+    <!-- Export: palette as code. Radio values must match the keys of EXPORTERS in app.js (section 15). -->
+    <dialog id="exportDialog" class="dialog" aria-labelledby="exportTitle">
+      <div class="dialog-bar">
+        <span class="dialog-dots" aria-hidden="true"><span></span><span></span><span></span></span>
+        <h2 id="exportTitle" class="dialog-title">
+          <span class="dialog-path" aria-hidden="true">~/chroma/</span>export
+        </h2>
+        <button class="icon-btn dialog-close" type="button" data-close aria-label="Close">
+          <svg class="icon" aria-hidden="true" focusable="false"><use href="#i-close" /></svg>
+        </button>
+      </div>
+      <div class="dialog-body">
+        <fieldset class="format-picker">
+          <legend class="sr-only">Export format</legend>
+          <label class="format-option"
+            ><input type="radio" name="exportFormat" value="css" checked /><span>css</span></label
+          >
+          <label class="format-option"
+            ><input type="radio" name="exportFormat" value="scss" /><span>scss</span></label
+          >
+          <label class="format-option"
+            ><input type="radio" name="exportFormat" value="tailwind" /><span>tailwind</span></label
+          >
+          <label class="format-option"
+            ><input type="radio" name="exportFormat" value="json" /><span>json</span></label
+          >
+          <label class="format-option"
+            ><input type="radio" name="exportFormat" value="hex" /><span>hex list</span></label
+          >
+        </fieldset>
+        <label class="sr-only" for="exportOutput">Exported code</label>
+        <textarea id="exportOutput" class="code-output" rows="10" readonly spellcheck="false"></textarea>
+      </div>
+      <div class="dialog-foot">
+        <button id="exportDownloadBtn" class="btn" type="button">download</button>
+        <button id="exportCopyBtn" class="btn btn-primary" type="button">copy code</button>
+      </div>
+      <!-- Screen-reader messages while this dialog is open (app.js section 13). -->
+      <p class="sr-only dialog-status" role="status" aria-live="polite"></p>
+    </dialog>
+
+    <!-- Help guide. Plain HTML: edit the text directly (see README → "Edit the help guide"). -->
+    <dialog id="helpDialog" class="dialog dialog--wide" aria-labelledby="helpTitle">
+      <div class="dialog-bar">
+        <span class="dialog-dots" aria-hidden="true"><span></span><span></span><span></span></span>
+        <span class="dialog-title dialog-path" aria-hidden="true">~/chroma/help.md</span>
+        <button class="icon-btn dialog-close" type="button" data-close aria-label="Close help">
+          <svg class="icon" aria-hidden="true" focusable="false"><use href="#i-close" /></svg>
+        </button>
+      </div>
+      <div class="dialog-body help">
+        <p class="help-kicker"># readme</p>
+        <h2 id="helpTitle" class="help-title">What is Chroma?</h2>
+        <p class="help-lead">
+          Chroma makes color palettes for websites, apps, slides or any design. Generate colors that work
+          together, keep the ones you like, fine-tune them, check their contrast, and copy them as code.
+          Everything runs in your browser.
+        </p>
+
+        <section class="help-section">
+          <h3 class="help-heading"><span class="help-num">01</span> Quick start</h3>
+          <ol class="help-steps">
+            <li>Press <kbd>Space</kbd> or <b>generate</b> for a new palette.</li>
+            <li>
+              Choose a <b>mode</b> to control how the colors relate. <b>auto</b> picks a different one each
+              time.
+            </li>
+            <li>
+              Click the <b>lock</b> on a color you like. Locked colors don't change, and new palettes are
+              built around the first locked color.
+            </li>
+            <li>
+              Click the <b>pipette</b> to choose a color yourself. A color you choose is locked automatically.
+            </li>
+            <li>Click a color code (HEX, RGB or HSL) to copy it.</li>
+            <li>Use <b>save</b>, <b>saved palettes</b> and <b>export</b> to keep your palette and use it.</li>
+          </ol>
+        </section>
+
+        <section class="help-section">
+          <h3 class="help-heading"><span class="help-num">02</span> Reading a color</h3>
+          <dl class="help-defs">
+            <div>
+              <dt>HEX · RGB · HSL</dt>
+              <dd>The same color written in three common formats.</dd>
+            </div>
+            <div>
+              <dt>
+                <i class="dot dot--white" aria-hidden="true"></i> /
+                <i class="dot dot--black" aria-hidden="true"></i> number
+              </dt>
+              <dd>Contrast ratio between this color and white or black text. Higher is easier to read.</dd>
+            </div>
+            <div>
+              <dt>AAA · AA</dt>
+              <dd>
+                7 or more is AAA; 4.5 or more is AA. Both pass the accessibility guidelines (WCAG) for normal
+                text.
+              </dd>
+            </div>
+            <div>
+              <dt>AA large · fail</dt>
+              <dd>3 or more passes only for large text (24px, or 19px bold). Below 3 fails.</dd>
+            </div>
+          </dl>
+        </section>
+
+        <section class="help-section">
+          <h3 class="help-heading"><span class="help-num">03</span> Modes</h3>
+          <dl class="help-defs">
+            <div>
+              <dt>analogous</dt>
+              <dd>Neighbouring hues. Calm and natural.</dd>
+            </div>
+            <div>
+              <dt>monochrome</dt>
+              <dd>One hue from light to dark. Clean and safe.</dd>
+            </div>
+            <div>
+              <dt>complementary</dt>
+              <dd>Two opposite hues. Strong contrast.</dd>
+            </div>
+            <div>
+              <dt>split complementary</dt>
+              <dd>One hue plus the two on each side of its opposite. Lively but balanced.</dd>
+            </div>
+            <div>
+              <dt>triadic</dt>
+              <dd>Three evenly spaced hues. Bright and playful.</dd>
+            </div>
+            <div>
+              <dt>random</dt>
+              <dd>No rules. Good for surprises.</dd>
+            </div>
+          </dl>
+        </section>
+
+        <section class="help-section">
+          <h3 class="help-heading"><span class="help-num">04</span> Keyboard shortcuts</h3>
+          <dl class="help-defs help-keys">
+            <div>
+              <dt><kbd>Space</kbd></dt>
+              <dd>New palette</dd>
+            </div>
+            <div>
+              <dt><kbd>1</kbd>–<kbd>8</kbd></dt>
+              <dd>Lock or unlock that color</dd>
+            </div>
+            <div>
+              <dt><kbd>+</kbd> / <kbd>−</kbd></dt>
+              <dd>Add or remove a color</dd>
+            </div>
+            <div>
+              <dt><kbd>Ctrl/⌘</kbd> <kbd>Z</kbd></dt>
+              <dd>Undo (add <kbd>Shift</kbd> to redo)</dd>
+            </div>
+            <div>
+              <dt><kbd>S</kbd></dt>
+              <dd>Save palette</dd>
+            </div>
+            <div>
+              <dt><kbd>L</kbd></dt>
+              <dd>Saved palettes</dd>
+            </div>
+            <div>
+              <dt><kbd>E</kbd></dt>
+              <dd>Export</dd>
+            </div>
+            <div>
+              <dt><kbd>?</kbd></dt>
+              <dd>This guide</dd>
+            </div>
+            <div>
+              <dt><kbd>Esc</kbd></dt>
+              <dd>Close a window</dd>
+            </div>
+          </dl>
+        </section>
+
+        <section class="help-section">
+          <h3 class="help-heading"><span class="help-num">05</span> Saving &amp; sharing</h3>
+          <ul class="help-list">
+            <li>
+              <b>Saved palettes</b> are kept in this browser only (up to 60). Clearing your browser data
+              removes them.
+            </li>
+            <li>
+              The <b>address bar</b> always contains the current colors. Bookmark it, or use
+              <b>copy share link</b>, to come back to the palette later.
+            </li>
+            <li>
+              <b>Export</b> gives CSS variables, SCSS, a Tailwind config, JSON or a plain HEX list. Copy it or
+              download it as a file.
+            </li>
+            <li>Nothing is uploaded. Chroma works offline once the page has loaded.</li>
+          </ul>
+        </section>
+      </div>
+      <div class="dialog-foot">
+        <span class="dialog-hint">press <kbd>Esc</kbd> to close</span>
+        <button class="btn btn-primary" type="button" data-close>got it</button>
+      </div>
+      <!-- Screen-reader messages while this dialog is open (app.js section 13). -->
+      <p class="sr-only dialog-status" role="status" aria-live="polite"></p>
+    </dialog>
+
+    <!-- Short confirmation message ("Copied #3DDC97"). Shown by app.js (section 13). -->
+    <div id="toast" class="toast" hidden></div>
+    <!-- Screen-reader announcements (new palette, copied, saved…). -->
+    <p id="announcer" class="sr-only" role="status" aria-live="polite"></p>
+
+    <script src="assets/js/app.js"></script>
+  </body>
+</html>
